@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<title>three visual map</title>
+	<style>
+		body {
+			margin: 0;
+		}
+		#maptip div {
+			padding: 2px;
+			margin: 1px;
+			text-align: center;
+			color: gray;
+			font-size: 10px;
+			width: 45px;
+			height: 12px;
+		}
+	</style>
+</head>
+
+<body>
+	<div style="text-align: center;font-size: 24px; height: 65px;">色阶全国漫游</div>
+	<div style="display: flex">
+		<div style="flex: auto;"></div>
+		<div style="position: relative;;">
+			<div id="threeMap"></div>
+			<div style="position: absolute; left:20px;bottom: 20px;" id = "maptip">			
+			</div>
+		</div>
+		<div style="flex:auto"></div>
+	</div>
+	
+	
+</body>
+
+<script type="module">
+
+	//包发布后验证
+	// import { readJSONFile,linearInterpolate,interpolateColor} from 'three-visual-map-01/tools';
+	// import THREE_MAP from 'three-visual-map';
+
+	//包开发时验证
+	import { readJSONFile, linearInterpolate, interpolateColor } from '../src/tools/common_utils.js';
+	import THREE_MAP from '../src/three_visual_map.js';
+
+
+	console.log("hello world!!")
+
+	let currentAdcode = '100000';
+	let threeMapWidth = 800;
+	let threeMapHeight = 600;
+	let threeMap;
+	const mapConfig = {
+		controller: "map",
+		helper: false,
+		dip: 15,
+		parentDom: {
+			id: "threeMap",
+			width: threeMapWidth,
+			height: threeMapHeight
+		},
+		scale: 0.9,
+		precision: 2,
+		geoJson: {},
+		mapCallback: mapCallback,
+		mapOverCallback: mapOverCallback,
+		backGround: {
+			color: 0x000000,
+			opacity: 0.85
+		},
+		polygonStyle: {
+			lineStyle: { //内边框
+				show: true,
+				color: 0x8ba4bb
+			},
+			shapeStyle: { //面
+				show: true,
+				depthSize: 10, //在当前地图最小间距的的倍数
+				fillColor: 0x2086e5,
+				overColor: 0x0000ff,
+				extrudeColor: 0x3d3d3d
+			}
+		}
+	}
+
+
+	function drawMap(updateFeature) {
+
+
+		threeMap.removeAllTextLabel()
+		threeMap.removeAllPiePoint()
+
+		let  minValue = Number.POSITIVE_INFINITY;;
+		let  maxValue = Number.NEGATIVE_INFINITY;;	
+		let  maxColor = 0x3397f3
+		let  minColor = 0xb7cdf5
+		
+		//地图色块
+		updateFeature.properties.districts.forEach(district => {
+			const properties = district.properties;
+			const randomValue = Math.floor(Math.random() * 101);
+			if (randomValue < minValue) {
+				minValue = randomValue;
+			}
+			if (randomValue > maxValue) {
+				maxValue = randomValue;
+			}
+			properties.fillColor = interpolateColor(minColor, maxColor, minValue, maxValue, randomValue);
+			properties.showValue = randomValue
+			
+		});
+		
+		//提示图
+		const tipDivParent = document.getElementById("maptip");
+		tipDivParent.innerHTML = '';
+		for (let i = 0; i < 6; i++) {
+			const div = document.createElement('div');
+			let color = interpolateColor(minColor, maxColor, minValue, maxValue, minValue+(6-1-i)*(maxValue-minValue)/(6-1));
+			let colorStr = color.toString(16);  
+			colorStr = colorStr.padStart(6, '0'); 
+
+			div.style.backgroundColor = "#" + colorStr;
+			if (i == 0 || i ==5) {
+				div.innerHTML = i == 0 ? maxValue : minValue
+			}
+			tipDivParent.appendChild(div);
+		}	
+
+		mapConfig.geoJson = updateFeature
+		
+		threeMap.drawMap(updateFeature)
+
+		
+
+	}
+
+	function mapOverCallback(properties) {
+		threeMap.removeAllTextLabel()
+		threeMap.removeAllPiePoint()
+		if (properties) {
+			const div = document.createElement('div');
+			div.style.visibility = 'none';
+			div.innerHTML = 'name';
+			div.style.margin = '10px 0px 0px 0px';
+			div.style.color = '#fff';
+			div.style.cursor = "pointer";
+			div.style.fontSize = '12px';
+			div.style.position = 'absolute';
+			div.style.backgroundColor = 'rgba(25,25,25,0.5)';
+			div.style.borderRadius = '5px';
+			div.style.pointerEvents = 'auto';
+			div.setAttribute('data-id', properties.adcode);
+			div.innerHTML = properties.name + '(' + properties.showValue+")";
+			div.addEventListener('click', function (event) {
+				event.preventDefault(); // 阻止默认的滚动行为  
+				mapCallback({adcode:event.target.getAttribute('data-id')});
+			});
+			threeMap.drawTextLabel([div], [properties.center], div);
+
+			const boun = threeMap.getMapBoundingClientRect()
+			const maxLine = Math.max(boun.maxX - boun.minX, boun.maxY - boun.minY);
+			threeMap.drawPiePoint([properties.center], [maxLine / 500], [0xaaaaaa]);
+		}
+
+	}
+
+	//监听地图切换事件
+	function mapCallback(properties) {
+		if (properties) {
+			//下钻
+			readJSONFile("https://media.acebridge.net/chinageo/" + properties.adcode + ".json", updateFeature => {
+				drawMap(updateFeature);
+				threeMap.resetClickBack();
+			}, error => {
+				console.log(error)
+				threeMap.resetClickBack();
+			});
+		} else {
+			properties = mapConfig.geoJson.properties
+			if (properties.acroutes.length >= 2) {  //上钻
+				readJSONFile("https://media.acebridge.net/chinageo/" + properties.acroutes[properties.acroutes.length - 2] + ".json", updateFeature => {
+					drawMap(updateFeature);
+					threeMap.resetClickBack();
+				},error =>{
+					console.log(error)
+					threeMap.resetClickBack();
+				})
+			}
+		}
+	}
+
+	threeMap = new THREE_MAP(mapConfig);//自动调 drawMap
+
+	readJSONFile("https://media.acebridge.net/chinageo/" + currentAdcode + ".json", (feature) => {
+		drawMap(feature);
+	})
+	
+</script>
+
+</html>
